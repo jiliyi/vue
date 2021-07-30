@@ -1,0 +1,6 @@
+rollup(打包js的工具)
+ @babel/core(核心模块)
+@babel/preset-env(babel将高级语法转成低级语法)
+ rollup-plugin-babel(让rollup可以使用babel,可以认为是一个桥梁)
+  rollup-plugin-serve(开启本地服务监听)
+   cross-env (设置环境变量)
