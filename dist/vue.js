@@ -190,7 +190,23 @@
   var attribute = /^\s*([^\s"'<>\/=]+)(?:\s*(=)\s*(?:"([^"]*)"+|'([^']*)'+|([^\s"'=<>`]+)))?/; // a=b  a="b"  a='b'
 
   var startTagClose = /^\s*(\/?)>/; //     />   <div/>
-  //  <div id="app">{{ msg }}</div>
+  //  <div id="app" name=aa age='19'>
+  //      <ul data-id="10">
+  //          <li>{{text}}</li>
+  //          <li class="item">{{一小项}}</li>
+  //      </ul>
+  //  </div> 
+
+  var stack = [];
+  var root; // const arr = {
+  //     tag: 'xx',
+  //     parent : ''
+  //     attribute: [],
+  //     children: [
+  //         { tagName: 'a', attribute: [], children: [] },
+  //         { tagName: 'a', attribute: [], children: [] },
+  //     ]
+  // }
 
   /**
    * 处理开始标签的token
@@ -199,16 +215,45 @@
    */
 
   function start(tagName, attributes) {
-    console.log('开始标签', tagName, attributes);
+    var parent = stack[stack.length - 1];
+    var element = {
+      tag: tagName,
+      type: 1,
+      // 类型为dom
+      attributes: attributes,
+      children: []
+    };
+
+    if (parent) {
+      parent.children.push(element);
+    } else {
+      root = element;
+    }
+
+    element.parent = parent;
+    stack.push(element);
   }
 
   function _char(text) {
-    console.log('文本', text);
+    text = text.replace(/\s/g, '');
+
+    if (text) {
+      var cur = stack[stack.length - 1];
+      cur.children.push({
+        type: 3,
+        //指代文本元素
+        text: text
+      });
+    }
   }
 
   function end(tagName) {
     // 处理结束标签
-    console.log('结束标签', tagName);
+    var last = stack.pop();
+
+    if (last.tag !== tagName) {
+      throw new Error('endTag Not Match');
+    }
   }
 
   function parserHTML(html) {
@@ -281,6 +326,7 @@
 
   function compileToFunction (template) {
     parserHTML(template);
+    console.log(root);
   }
 
   function initMixin(Vue) {
