@@ -42,6 +42,80 @@
     return Constructor;
   }
 
+  function _unsupportedIterableToArray(o, minLen) {
+    if (!o) return;
+    if (typeof o === "string") return _arrayLikeToArray(o, minLen);
+    var n = Object.prototype.toString.call(o).slice(8, -1);
+    if (n === "Object" && o.constructor) n = o.constructor.name;
+    if (n === "Map" || n === "Set") return Array.from(o);
+    if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen);
+  }
+
+  function _arrayLikeToArray(arr, len) {
+    if (len == null || len > arr.length) len = arr.length;
+
+    for (var i = 0, arr2 = new Array(len); i < len; i++) arr2[i] = arr[i];
+
+    return arr2;
+  }
+
+  function _createForOfIteratorHelper(o, allowArrayLike) {
+    var it = typeof Symbol !== "undefined" && o[Symbol.iterator] || o["@@iterator"];
+
+    if (!it) {
+      if (Array.isArray(o) || (it = _unsupportedIterableToArray(o)) || allowArrayLike && o && typeof o.length === "number") {
+        if (it) o = it;
+        var i = 0;
+
+        var F = function () {};
+
+        return {
+          s: F,
+          n: function () {
+            if (i >= o.length) return {
+              done: true
+            };
+            return {
+              done: false,
+              value: o[i++]
+            };
+          },
+          e: function (e) {
+            throw e;
+          },
+          f: F
+        };
+      }
+
+      throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+    }
+
+    var normalCompletion = true,
+        didErr = false,
+        err;
+    return {
+      s: function () {
+        it = it.call(o);
+      },
+      n: function () {
+        var step = it.next();
+        normalCompletion = step.done;
+        return step;
+      },
+      e: function (e) {
+        didErr = true;
+        err = e;
+      },
+      f: function () {
+        try {
+          if (!normalCompletion && it.return != null) it.return();
+        } finally {
+          if (didErr) throw err;
+        }
+      }
+    };
+  }
+
   function isFunction(val) {
     return typeof val == 'function';
   }
@@ -322,17 +396,171 @@
         _char(text);
       }
     }
+
+    return root;
+  }
+
+  var defaultTagRE = /\{\{((?:.|\r?\n)+?)\}\}/g; // {{aaaaa}}
+
+  function genAttr(attributes) {
+    var str = '';
+
+    var _iterator = _createForOfIteratorHelper(attributes),
+        _step;
+
+    try {
+      for (_iterator.s(); !(_step = _iterator.n()).done;) {
+        var attr = _step.value;
+
+        if (attr.name === 'style') {
+          (function () {
+            var styleObj = {};
+            attr.value.replace(/([^:;]+)\:([^:;]+)/g, function (n1, n2, n3) {
+              styleObj[n2] = n3;
+            });
+            attr.value = styleObj;
+          })();
+        }
+
+        str += "".concat(attr.name, ":").concat(JSON.stringify(attr.value), ",");
+      }
+    } catch (err) {
+      _iterator.e(err);
+    } finally {
+      _iterator.f();
+    }
+
+    return "{".concat(str.slice(0, -1), "}");
+  }
+
+  function genChar(_char) {
+    var text = _char.text;
+
+    if (!defaultTagRE.test(text)) {
+      return "_v(".concat(text, ")");
+    } else {
+      defaultTagRE.lastIndex = 0;
+      var tokens = [];
+      var match;
+      var lastIndex = 0;
+
+      while (match = defaultTagRE.exec(text)) {
+        // name {{ age }} sex {{a }}
+        var index = match.index;
+
+        if (index > lastIndex) {
+          tokens.push(JSON.stringify(text.slice(lastIndex, index)));
+        }
+
+        tokens.push("_s(".concat(match[1], ")")); // 处理可能是对象的情况
+
+        lastIndex = match[0].length + index;
+      }
+
+      if (lastIndex < text.length) {
+        tokens.push(JSON.stringify(text.slice(lastIndex)));
+      }
+
+      return "_v(".concat(tokens.join('+'), ")");
+    }
+  }
+
+  function genChildren(el) {
+    var str = '';
+
+    var _iterator2 = _createForOfIteratorHelper(el.children),
+        _step2;
+
+    try {
+      for (_iterator2.s(); !(_step2 = _iterator2.n()).done;) {
+        var child = _step2.value;
+
+        if (child.type === 1) {
+          str += "".concat(generate(child), ",");
+        } else {
+          str += "".concat(genChar(child), ",");
+        }
+      }
+    } catch (err) {
+      _iterator2.e(err);
+    } finally {
+      _iterator2.f();
+    }
+
+    return "".concat(str.slice(0, -1));
+  }
+
+  function generate(root) {
+    //_c('div',{id:'app',name : '1'},'text')
+    var children = genChildren(root);
+    return "_c('".concat(root.tag, "',").concat(root.attributes.length ? genAttr(root.attributes) : undefined).concat(children ? ",".concat(children) : '', ")");
   }
 
   function compileToFunction (template) {
-    parserHTML(template);
-    console.log(root);
+    var root = parserHTML(template);
+    var code = generate(root);
+    return new Function("with(this){return ".concat(code, "}")); // 模板引擎
+  }
+
+  function patch(oldVnde, vnode) {
+    if (oldVnde.nodeType === 1) {
+      var parent = oldVnde.parentNode;
+      var node = createEle(vnode);
+      parent.insertBefore(node, oldVnde.nextSibling);
+      parent.removeChild(oldVnde);
+    }
+
+    return vnode.el;
+  }
+
+  function createEle(vnode) {
+    var tag = vnode.tag,
+        text = vnode.text,
+        children = vnode.children;
+
+    if (tag) {
+      vnode.el = document.createElement(tag);
+
+      if (children.length) {
+        var _iterator = _createForOfIteratorHelper(children),
+            _step;
+
+        try {
+          for (_iterator.s(); !(_step = _iterator.n()).done;) {
+            var child = _step.value;
+            vnode.el.appendChild(createEle(child));
+          }
+        } catch (err) {
+          _iterator.e(err);
+        } finally {
+          _iterator.f();
+        }
+      }
+    } else {
+      vnode.el = document.createTextNode(text);
+    }
+
+    return vnode.el;
+  }
+
+  function lifeCycleMixin(Vue) {
+    Vue.prototype._update = function (vnode) {
+      var vm = this;
+      var r = patch(vm.$el, vnode);
+      console.log(r);
+    };
+  }
+  function mountComponent(vm) {
+    var updateComponent = function updateComponent() {
+      vm._update(vm._render());
+    };
+
+    updateComponent();
   }
 
   function initMixin(Vue) {
     Vue.prototype._init = function (options) {
       var vm = this;
-      vm.$el = options.el;
       vm.$options = options;
       initState(vm);
 
@@ -344,6 +572,7 @@
     Vue.prototype.$mount = function (el) {
       el = document.querySelector(el);
       var vm = this;
+      vm.$el = el;
       var options = vm.$options;
 
       if (!options.render) {
@@ -354,9 +583,58 @@
           template = el.outerHTML;
         }
 
-        var render = compileToFunction(template);
-        vm.render = render;
+        vm.$options.render = compileToFunction(template);
       }
+
+      mountComponent(vm);
+    };
+  }
+
+  function createElement(vm, tag) {
+    var data = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
+
+    for (var _len = arguments.length, children = new Array(_len > 3 ? _len - 3 : 0), _key = 3; _key < _len; _key++) {
+      children[_key - 3] = arguments[_key];
+    }
+
+    return vNode(vm, tag, data, data.key, children, undefined);
+  }
+  function createTextNode(vm, text) {
+    return vNode(vm, undefined, undefined, undefined, undefined, text);
+  }
+
+  function vNode(vm, tag, data, key, children, text) {
+    return {
+      vm: vm,
+      tag: tag,
+      data: data,
+      key: key,
+      children: children,
+      text: text
+    };
+  }
+
+  function renderMixin(Vue) {
+    Vue.prototype._c = function () {
+      var vm = this;
+      return createElement.apply(void 0, [vm].concat(Array.prototype.slice.call(arguments)));
+    };
+
+    Vue.prototype._v = function () {
+      var vm = this;
+      return createTextNode.apply(void 0, [vm].concat(Array.prototype.slice.call(arguments)));
+    };
+
+    Vue.prototype._s = function (text) {
+      if (_typeof(text) == 'object') return JSON.stringify(text);
+      return text;
+    };
+
+    Vue.prototype._render = function () {
+      var vm = this;
+      var render = vm.$options.render;
+      var vnode = render.call(vm);
+      return vnode;
     };
   }
 
@@ -365,6 +643,8 @@
   }
 
   initMixin(Vue);
+  lifeCycleMixin(Vue);
+  renderMixin(Vue);
 
   return Vue;
 
